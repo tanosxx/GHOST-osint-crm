@@ -73,7 +73,8 @@ const GlobalMap = () => {
       
       // Use new optimized locations endpoint with pagination
       const response = await fetch(
-        `${API_BASE_URL}/locations?limit=${limit}&offset=${page * limit}&confidence=0&includeUngeocoded=true`
+        `${API_BASE_URL}/locations?limit=${limit}&offset=${page * limit}&confidence=0&includeUngeocoded=true`,
+        { credentials: 'include' }
       );
       
       if (!response.ok) {
@@ -118,7 +119,7 @@ const GlobalMap = () => {
   const fetchGeocodingStats = async () => {
     try {
       const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
-      const response = await fetch(`${API_BASE_URL}/geocode/stats`);
+      const response = await fetch(`${API_BASE_URL}/geocode/stats`, { credentials: 'include' });
       if (response.ok) {
         const stats = await response.json();
         setGeocodingStats(stats);
@@ -161,6 +162,7 @@ const GlobalMap = () => {
       
       const response = await fetch(`${API_BASE_URL}/geocode/batch-enhanced`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json'
         },
@@ -193,6 +195,7 @@ Used cache: ${result.summary.cached}`);
         const fallbackApiUrl = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
         const response = await fetch(`${fallbackApiUrl}/geocode/batch`, {
           method: 'POST',
+          credentials: 'include',
           headers: {
             'Content-Type': 'application/json'
           }
@@ -223,7 +226,7 @@ Used cache: ${result.summary.cached}`);
     
     try {
       const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
-      const response = await fetch(`${API_BASE_URL}/geocode/suggestions?q=${encodeURIComponent(query)}&limit=5`);
+      const response = await fetch(`${API_BASE_URL}/geocode/suggestions?q=${encodeURIComponent(query)}&limit=5`, { credentials: 'include' });
       
       if (response.ok) {
         const suggestions = await response.json();
