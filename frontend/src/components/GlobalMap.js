@@ -69,7 +69,7 @@ const GlobalMap = () => {
   const fetchPeople = async (page = 0, limit = 100) => {
     try {
       setLoading(true);
-      const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+      const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
       
       // Use new optimized locations endpoint with pagination
       const response = await fetch(
@@ -105,7 +105,7 @@ const GlobalMap = () => {
   
   const fetchAllPeople = async () => {
     try {
-      const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+      const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
       const response = await fetch(`${API_BASE_URL}/people?limit=1000`, { credentials: 'include' });
       if (!response.ok) return;
       const data = await response.json();
@@ -118,7 +118,7 @@ const GlobalMap = () => {
 
   const fetchGeocodingStats = async () => {
     try {
-      const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+      const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
       const response = await fetch(`${API_BASE_URL}/geocode/stats`, { credentials: 'include' });
       if (response.ok) {
         const stats = await response.json();
@@ -146,7 +146,7 @@ const GlobalMap = () => {
     
     try {
       setGeocoding(true);
-      const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+      const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
       
       // First try the enhanced batch geocoding endpoint
       const locations = people.flatMap(person => 
@@ -192,7 +192,7 @@ Used cache: ${result.summary.cached}`);
       
       // Fallback to original batch geocoding
       try {
-        const fallbackApiUrl = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+        const fallbackApiUrl = process.env.REACT_APP_API_URL || '/api';
         const response = await fetch(`${fallbackApiUrl}/geocode/batch`, {
           method: 'POST',
           credentials: 'include',
@@ -225,7 +225,7 @@ Used cache: ${result.summary.cached}`);
     }
     
     try {
-      const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+      const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
       const response = await fetch(`${API_BASE_URL}/geocode/suggestions?q=${encodeURIComponent(query)}&limit=5`, { credentials: 'include' });
       
       if (response.ok) {
@@ -245,7 +245,7 @@ Used cache: ${result.summary.cached}`);
     }
 
     try {
-      const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+      const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 
       // First geocode the address
       const geocodeResponse = await fetch(`${API_BASE_URL}/geocode/address`, {
