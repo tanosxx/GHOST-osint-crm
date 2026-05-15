@@ -55,10 +55,12 @@ const GlobalMap = () => {
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+  const [allPeople, setAllPeople] = useState([]);
 
   // Fetch people data, wireless networks, and geocoding stats
   useEffect(() => {
     fetchPeople();
+    fetchAllPeople();
     fetchWirelessNetworks();
     fetchGeocodingStats();
   }, []);
@@ -98,6 +100,19 @@ const GlobalMap = () => {
     }
   };
   
+  const fetchAllPeople = async () => {
+    try {
+      const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+      const response = await fetch(`${API_BASE_URL}/people?limit=1000`, { credentials: 'include' });
+      if (!response.ok) return;
+      const data = await response.json();
+      const list = Array.isArray(data) ? data : (data.people || data.data || []);
+      setAllPeople(list.sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)));
+    } catch (err) {
+      console.error('Error fetching all people:', err);
+    }
+  };
+
   const fetchGeocodingStats = async () => {
     try {
       const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
@@ -835,7 +850,7 @@ Confidence: ${geocodeResult.result.confidence}%`);
                   className="w-full px-3 py-2 bg-white dark:bg-slate-800 dark:text-gray-100 border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:border-blue-500"
                 >
                   <option value="">-- Select a person --</option>
-                  {people.map(person => (
+                  {allPeople.map(person => (
                     <option key={person.id} value={person.id}>
                       {person.first_name} {person.last_name} {person.case_name ? `(${person.case_name})` : ''}
                     </option>
