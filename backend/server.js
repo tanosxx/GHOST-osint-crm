@@ -1435,17 +1435,55 @@ app.post('/api/geocode/batch-enhanced', requireAuth, requireAdmin, async (req, r
       minConfidence,
       maxConcurrent
     });
-    
+
+    // Group geocoded results by person and write back to people.locations
+    const byPerson = {};
+    for (const result of results) {
+      if (!result.person_id) continue;
+      if (!byPerson[result.person_id]) byPerson[result.person_id] = [];
+      byPerson[result.person_id].push(result);
+    }
+
+    for (const [personId, geocodedLocs] of Object.entries(byPerson)) {
+      const personResult = await pool.query(
+        'SELECT locations FROM people WHERE id = $1',
+        [parseInt(personId)]
+      );
+      if (!personResult.rows.length) continue;
+
+      const existingLocations = personResult.rows[0].locations || [];
+      const updatedLocations = existingLocations.map(loc => {
+        const match = geocodedLocs.find(g =>
+          g.address === loc.address &&
+          g.city === loc.city &&
+          g.country === loc.country
+        );
+        if (match && match.latitude && match.longitude) {
+          return {
+            ...loc,
+            latitude: match.latitude,
+            longitude: match.longitude,
+            geocode_confidence: match.geocode_confidence || 0,
+            geocode_provider: match.geocode_provider || 'nominatim',
+            geocoded_at: new Date().toISOString()
+          };
+        }
+        return loc;
+      });
+
+      await pool.query(
+        'UPDATE people SET locations = $1 WHERE id = $2',
+        [JSON.stringify(updatedLocations), parseInt(personId)]
+      );
+    }
+
     const summary = {
       total: results.length,
       geocoded: results.filter(r => r.latitude && r.longitude).length,
       cached: results.filter(r => r.geocoded_at && r.geocode_confidence > 0).length
     };
-    
-    res.json({
-      results: results,
-      summary: summary
-    });
+
+    res.json({ results, summary });
   } catch (err) {
     console.error('Error in enhanced batch geocoding:', err);
     res.status(500).json({ error: 'Enhanced batch geocoding failed' });
