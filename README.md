@@ -377,7 +377,7 @@ Feedback, inputs, and suggestions are highly welcome! Please open an issue or re
 
 ## 📋 Recent Changes
 
-### Version 2.3.0 (May 2026)
+### Version 2.4.0 (May 2026)
 - 🔒 **Security hardening** — 15 vulnerabilities addressed: unauthenticated routes locked down, SQL injection in sort parameter fixed, Docker control endpoints removed, session cookie hardened with `SameSite=Strict`
 - 🔒 **Secrets management** — `SESSION_SECRET` and `DB_PASSWORD` are now mandatory with no fallback defaults; app exits at startup if missing
 - 🔒 **Docker hardening** — production `NODE_ENV` in compose, PostgreSQL no longer exposed to host network by default
@@ -420,5 +420,5 @@ See [CHANGELOG.md](CHANGELOG.md) for complete details.
 
 Built with ❤️ for the OSINT community.
 
-**Version:** 2.3.0
+**Version:** 2.4.0
 **Last Updated:** May 15, 2026
