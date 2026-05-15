@@ -310,9 +310,9 @@ const initializeDatabase = async () => {
       CREATE TABLE IF NOT EXISTS wireless_networks (
         id SERIAL PRIMARY KEY,
         ssid VARCHAR(255) NOT NULL,
-        bssid VARCHAR(17) NOT NULL,
-        latitude DOUBLE PRECISION NOT NULL,
-        longitude DOUBLE PRECISION NOT NULL,
+        bssid VARCHAR(17),
+        latitude DOUBLE PRECISION,
+        longitude DOUBLE PRECISION,
         accuracy DOUBLE PRECISION,
         encryption VARCHAR(50),
         signal_strength INTEGER,
@@ -331,9 +331,11 @@ const initializeDatabase = async () => {
         notes TEXT,
         tags TEXT[],
         area_name VARCHAR(255),
+        password VARCHAR(255),
+        associated_person_ids INTEGER[],
+        associated_business_ids INTEGER[],
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT unique_network_location UNIQUE(bssid, latitude, longitude, scan_date)
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
     console.log('Checked/created "wireless_networks" table.');
@@ -351,14 +353,13 @@ const initializeDatabase = async () => {
     `);
     console.log('Created indexes for "wireless_networks" table.');
 
-    // Add password and association columns if they don't exist (migration)
+    // Ensure password and association columns exist on existing installs
     await client.query(`
       ALTER TABLE wireless_networks
       ADD COLUMN IF NOT EXISTS password VARCHAR(255),
       ADD COLUMN IF NOT EXISTS associated_person_ids INTEGER[],
       ADD COLUMN IF NOT EXISTS associated_business_ids INTEGER[];
     `);
-    console.log('Added additional columns to "wireless_networks" table.');
 
   } catch (err) {
     console.error('Error during database initialization:', err.stack);
