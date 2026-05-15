@@ -2,6 +2,7 @@
 // Table view for people with inline editing, quick-add, and bulk operations
 
 import React, { useState, useRef } from 'react';
+import Papa from 'papaparse';
 import {
   Save, X, Edit2, Trash2, Eye, Plus, Upload, Download,
   UserPlus, Link as LinkIcon, Check, AlertCircle
@@ -185,27 +186,28 @@ const PeopleTableView = ({
 
   // Process bulk CSV data
   const processBulkImport = async () => {
-    const lines = bulkData.trim().split('\n');
-    if (lines.length < 2) {
+    const { data: rows, errors: parseErrors } = Papa.parse(bulkData.trim(), {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: h => h.trim().toLowerCase(),
+    });
+
+    if (rows.length === 0) {
       alert('CSV must have a header row and at least one data row');
       return;
     }
 
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-    const data = lines.slice(1);
+    if (parseErrors.length > 0) {
+      alert(`CSV parse errors:\n${parseErrors.map(e => e.message).join('\n')}`);
+      return;
+    }
 
     const created = [];
     const errors = [];
 
-    for (let i = 0; i < data.length; i++) {
-      const values = data[i].split(',').map(v => v.trim());
-      const row = {};
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
 
-      headers.forEach((header, index) => {
-        row[header] = values[index] || '';
-      });
-
-      // Map CSV columns to API fields
       const personData = {
         firstName: row['first name'] || row['firstname'] || '',
         lastName: row['last name'] || row['lastname'] || '',

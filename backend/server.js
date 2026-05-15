@@ -977,14 +977,25 @@ app.put('/api/people/:id', requireAuth, async (req, res) => {
     const result = await pool.query(query, values);
     const newPerson = result.rows[0];
     
-    // Log audit changes
+    // Log audit changes — scalar fields compared directly, JSON fields by serialisation
     const changes = {};
     if (oldPerson.first_name !== firstName) changes.first_name = { oldValue: oldPerson.first_name, newValue: firstName };
     if (oldPerson.last_name !== lastName) changes.last_name = { oldValue: oldPerson.last_name, newValue: lastName };
     if (oldPerson.category !== category) changes.category = { oldValue: oldPerson.category, newValue: category };
     if (oldPerson.status !== status) changes.status = { oldValue: oldPerson.status, newValue: status };
     if (oldPerson.case_name !== caseName) changes.case_name = { oldValue: oldPerson.case_name, newValue: caseName };
-    
+    if (oldPerson.notes !== (notes || null)) changes.notes = { oldValue: oldPerson.notes, newValue: notes || null };
+    const jsonFields = [
+      ['locations', geocodedLocations],
+      ['connections', connections],
+      ['osint_data', osintData],
+    ];
+    for (const [field, newVal] of jsonFields) {
+      if (JSON.stringify(oldPerson[field]) !== JSON.stringify(newVal)) {
+        changes[field] = { changed: true };
+      }
+    }
+
     if (Object.keys(changes).length > 0) {
       await logAudit('person', personId, 'update', changes);
     }
@@ -1824,60 +1835,141 @@ app.post('/api/import', requireAdmin, async (req, res) => {
     return JSON.stringify(data);
   };
   
+  const importErrors = [];
+
+  const tryInsert = async (label, fn) => {
+    try {
+      await fn();
+    } catch (err) {
+      console.warn(`Import warning [${label}]:`, err.message);
+      importErrors.push({ record: label, error: err.message });
+    }
+  };
+
   try {
     await client.query('BEGIN');
-    
+
     // Create a mapping for person IDs (old ID -> new ID)
     const personIdMapping = {};
-    
+
     // Import in order to respect foreign key constraints
     if (importData.data.cases) {
       for (const caseItem of importData.data.cases) {
-        await client.query(
-          `INSERT INTO cases (case_name, description, status) 
-           VALUES ($1, $2, $3) 
-           ON CONFLICT (case_name) DO UPDATE 
+        await tryInsert(`case:${caseItem.case_name}`, () => client.query(
+          `INSERT INTO cases (case_name, description, status)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (case_name) DO UPDATE
            SET description = EXCLUDED.description, status = EXCLUDED.status`,
           [caseItem.case_name, caseItem.description, caseItem.status]
-        );
+        ));
       }
     }
-    
+
     if (importData.data.customFields) {
       for (const field of importData.data.customFields) {
-        // Ensure options is properly formatted JSON
         const optionsJSON = field.options ? toJSONString(field.options) : '[]';
-        
-        await client.query(
+        await tryInsert(`customField:${field.field_name}`, () => client.query(
           `INSERT INTO custom_person_fields (field_name, field_label, field_type, options, is_active)
            VALUES ($1, $2, $3, $4::jsonb, $5)
            ON CONFLICT (field_name) DO UPDATE
-           SET field_label = EXCLUDED.field_label, field_type = EXCLUDED.field_type, 
+           SET field_label = EXCLUDED.field_label, field_type = EXCLUDED.field_type,
                options = EXCLUDED.options, is_active = EXCLUDED.is_active`,
           [field.field_name, field.field_label, field.field_type, optionsJSON, field.is_active]
-        );
+        ));
       }
     }
-    
+
     if (importData.data.modelOptions) {
       for (const option of importData.data.modelOptions) {
-        await client.query(
+        await tryInsert(`modelOption:${option.model_type}/${option.option_value}`, () => client.query(
           `INSERT INTO model_options (model_type, option_value, option_label, is_active, display_order)
            VALUES ($1, $2, $3, $4, $5)
            ON CONFLICT (model_type, option_value) DO UPDATE
-           SET option_label = EXCLUDED.option_label, is_active = EXCLUDED.is_active, 
+           SET option_label = EXCLUDED.option_label, is_active = EXCLUDED.is_active,
                display_order = EXCLUDED.display_order`,
           [option.model_type, option.option_value, option.option_label, option.is_active, option.display_order]
-        );
+        ));
       }
     }
-    
-    // Create a mapping for business IDs (old ID -> new ID)
-    const businessIdMapping = {};
 
+    if (importData.data.people) {
+      for (const person of importData.data.people) {
+        const osintDataJSON = person.osint_data ? toJSONString(person.osint_data) : '[]';
+        const attachmentsJSON = person.attachments ? toJSONString(person.attachments) : '[]';
+        const connectionsJSON = person.connections ? toJSONString(person.connections) : '[]';
+        const locationsJSON = person.locations ? toJSONString(person.locations) : '[]';
+        const customFieldsJSON = person.custom_fields ? toJSONString(person.custom_fields) : '{}';
+
+        try {
+          const result = await client.query(
+            `INSERT INTO people (first_name, last_name, aliases, date_of_birth, category, status,
+                                 crm_status, case_name, profile_picture_url, notes, osint_data,
+                                 attachments, connections, locations, custom_fields)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb)
+             RETURNING id`,
+            [person.first_name, person.last_name, person.aliases, person.date_of_birth,
+             person.category, person.status, person.crm_status, person.case_name,
+             person.profile_picture_url, person.notes, osintDataJSON, attachmentsJSON,
+             connectionsJSON, locationsJSON, customFieldsJSON]
+          );
+          if (person.id && result.rows[0]) {
+            personIdMapping[person.id] = result.rows[0].id;
+          }
+        } catch (err) {
+          console.warn(`Import warning [person:${person.first_name} ${person.last_name}]:`, err.message);
+          importErrors.push({ record: `person:${person.first_name} ${person.last_name}`, error: err.message });
+        }
+      }
+    }
+
+    if (importData.data.tools) {
+      for (const tool of importData.data.tools) {
+        await tryInsert(`tool:${tool.name}`, () => client.query(
+          `INSERT INTO tools (name, link, description, category, status, tags, notes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [tool.name, tool.link, tool.description, tool.category, tool.status, tool.tags, tool.notes]
+        ));
+      }
+    }
+
+    if (importData.data.todos) {
+      for (const todo of importData.data.todos) {
+        await tryInsert(`todo:${todo.text?.slice(0, 30)}`, () => client.query(
+          `INSERT INTO todos (text, status, last_update_comment)
+           VALUES ($1, $2, $3)`,
+          [todo.text, todo.status, todo.last_update_comment]
+        ));
+      }
+    }
+
+    if (importData.data.travelHistory) {
+      for (const travel of importData.data.travelHistory) {
+        const newPersonId = personIdMapping[travel.person_id];
+        if (newPersonId) {
+          await tryInsert(`travel:person${travel.person_id}`, () => client.query(
+            `INSERT INTO travel_history
+             (person_id, location_type, location_name, address, city, state, country, postal_code,
+              latitude, longitude, arrival_date, departure_date, purpose, transportation_mode, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+            [newPersonId, travel.location_type, travel.location_name, travel.address,
+             travel.city, travel.state, travel.country, travel.postal_code,
+             travel.latitude, travel.longitude, travel.arrival_date, travel.departure_date,
+             travel.purpose, travel.transportation_mode, travel.notes]
+          ));
+        } else {
+          importErrors.push({ record: `travel:person${travel.person_id}`, error: 'Person not found in import' });
+        }
+      }
+    }
+
+    // Import businesses after people so owner_person_id can be remapped
+    const businessIdMapping = {};
     if (importData.data.businesses) {
       for (const business of importData.data.businesses) {
         const employeesJSON = business.employees ? toJSONString(business.employees) : '[]';
+        const remappedOwnerId = business.owner_person_id
+          ? (personIdMapping[business.owner_person_id] || null)
+          : null;
 
         const result = await client.query(
           `INSERT INTO businesses (name, type, industry, address, city, state, country, postal_code,
@@ -1887,7 +1979,7 @@ app.post('/api/import', requireAdmin, async (req, res) => {
            RETURNING id`,
           [business.name, business.type, business.industry, business.address, business.city,
            business.state, business.country, business.postal_code, business.latitude, business.longitude,
-           business.phone, business.email, business.website, business.owner_person_id,
+           business.phone, business.email, business.website, remappedOwnerId,
            business.registration_number, business.registration_date, business.status,
            employeesJSON, business.notes]
         );
@@ -1898,77 +1990,7 @@ app.post('/api/import', requireAdmin, async (req, res) => {
       }
     }
 
-    if (importData.data.people) {
-      for (const person of importData.data.people) {
-        // Ensure all JSON fields are properly formatted
-        const osintDataJSON = person.osint_data ? toJSONString(person.osint_data) : '[]';
-        const attachmentsJSON = person.attachments ? toJSONString(person.attachments) : '[]';
-        const connectionsJSON = person.connections ? toJSONString(person.connections) : '[]';
-        const locationsJSON = person.locations ? toJSONString(person.locations) : '[]';
-        const customFieldsJSON = person.custom_fields ? toJSONString(person.custom_fields) : '{}';
-
-        const result = await client.query(
-          `INSERT INTO people (first_name, last_name, aliases, date_of_birth, category, status,
-                               crm_status, case_name, profile_picture_url, notes, osint_data,
-                               attachments, connections, locations, custom_fields)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb)
-           RETURNING id`,
-          [person.first_name, person.last_name, person.aliases, person.date_of_birth,
-           person.category, person.status, person.crm_status, person.case_name,
-           person.profile_picture_url, person.notes, osintDataJSON, attachmentsJSON,
-           connectionsJSON, locationsJSON, customFieldsJSON]
-        );
-
-        // Map old ID to new ID
-        if (person.id && result.rows[0]) {
-          personIdMapping[person.id] = result.rows[0].id;
-        }
-      }
-    }
-    
-    if (importData.data.tools) {
-      for (const tool of importData.data.tools) {
-        await client.query(
-          `INSERT INTO tools (name, link, description, category, status, tags, notes)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [tool.name, tool.link, tool.description, tool.category, tool.status, tool.tags, tool.notes]
-        );
-      }
-    }
-    
-    if (importData.data.todos) {
-      for (const todo of importData.data.todos) {
-        await client.query(
-          `INSERT INTO todos (text, status, last_update_comment)
-           VALUES ($1, $2, $3)`,
-          [todo.text, todo.status, todo.last_update_comment]
-        );
-      }
-    }
-    
-    if (importData.data.travelHistory) {
-      for (const travel of importData.data.travelHistory) {
-        // Map the old person_id to the new one
-        const newPersonId = personIdMapping[travel.person_id];
-        
-        if (newPersonId) {
-          await client.query(
-            `INSERT INTO travel_history 
-             (person_id, location_type, location_name, address, city, state, country, postal_code,
-              latitude, longitude, arrival_date, departure_date, purpose, transportation_mode, notes)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-            [newPersonId, travel.location_type, travel.location_name, travel.address, 
-             travel.city, travel.state, travel.country, travel.postal_code,
-             travel.latitude, travel.longitude, travel.arrival_date, travel.departure_date, 
-             travel.purpose, travel.transportation_mode, travel.notes]
-          );
-        } else {
-          console.warn(`Skipping travel history record with person_id ${travel.person_id} - person not found`);
-        }
-      }
-    }
-    
-    // Now update the connections with the new person IDs
+    // Update connections with the new person IDs
     if (importData.data.people) {
       for (const person of importData.data.people) {
         if (person.connections && person.connections.length > 0) {
@@ -1990,7 +2012,10 @@ app.post('/api/import', requireAdmin, async (req, res) => {
     }
     
     await client.query('COMMIT');
-    res.json({ message: 'Data imported successfully' });
+    res.json({
+      message: importErrors.length === 0 ? 'Data imported successfully' : 'Data imported with some errors',
+      errors: importErrors.length > 0 ? importErrors : undefined
+    });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Error importing data:', err);
