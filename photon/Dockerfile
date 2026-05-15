@@ -15,8 +15,8 @@ RUN wget -qO /tmp/release.json \
     wget -q "$DOWNLOAD_URL" -O /photon/photon.jar && \
     rm /tmp/release.json
 
-RUN groupadd --gid 1000 photon && \
-    useradd --uid 1000 --gid photon --shell /bin/bash --create-home photon && \
+RUN groupadd --gid 1001 photon && \
+    useradd --uid 1001 --gid photon --shell /bin/bash --create-home photon && \
     chown photon:photon /photon/photon.jar
 
 COPY entrypoint.sh /entrypoint.sh
